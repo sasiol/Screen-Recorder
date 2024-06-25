@@ -201,6 +201,8 @@ PAVIFILE createAviFile(PAVISTREAM& aviStream, int width, int height){
 }
 
 int main() {
+    bool stop=false;
+    
     HDC hScreenDC= GetDC(NULL);
     // Capture one frame to get dimensions
     int width = GetDeviceCaps(hScreenDC, HORZRES);
@@ -210,12 +212,14 @@ int main() {
     PAVIFILE aviFile = createAviFile(aviStream, width, height);
     
     long i=1;
-    while(i<40){
+    while(stop==false){
         HBITMAP compBitmap= captureScreen();
         appendNewFrame(aviStream, compBitmap, i );
         DeleteObject(compBitmap);
+        stop=GetAsyncKeyState(VK_RETURN)&0x8000;
         i++;
     }
+    
 
  AVIStreamRelease(aviStream);
 AVIFileRelease(aviFile); // Release AVI file handle
