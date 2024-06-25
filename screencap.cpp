@@ -10,8 +10,9 @@ using std::string;
 // Function declarations
 BITMAPINFOHEADER createBitmapHeader(int width, int height);
 BITMAPFILEHEADER createBitmapFileHeader(int width, int height, int imageSize);
-void captureScreen(HWND hWnd);
-void save(HBITMAP compBitmap, HDC hMemoryDC);
+HBITMAP captureScreen(HWND hWnd);
+char* createBuffer(HBITMAP compBitmap);
+void saveScreenShot(HBITMAP compBitmap, HDC hMemoryDC);
 void appendNewFrame(std::ofstream& frameOut, HBITMAP compBitmap, long frameNum);
 
 
@@ -22,7 +23,7 @@ BITMAPINFOHEADER createBitmapHeader(int width, int height) {
 
     bi.biSize=sizeof(BITMAPINFOHEADER);
     bi.biWidth=width;
-    bi.biHeight=height;//-
+    bi.biHeight=-height;
     bi.biPlanes=1;
     bi.biBitCount=24; //32?
     bi.biCompression=BI_RGB;
@@ -46,8 +47,7 @@ BITMAPFILEHEADER createBitmapFileHeader(int width, int height, int imageSize) {
     return fileHeader;
 } 
 HBITMAP captureScreen(){
-    HDC hScreenDC = GetDC(NULL); //gets DC of whole screen
-    
+     HDC hScreenDC = GetDC(NULL); //gets DC of whole screen
     HDC hMemoryDC = CreateCompatibleDC(hScreenDC); //creates a memory DC that is compatible with the screen DC
 
     int width = GetDeviceCaps(hScreenDC, HORZRES);
@@ -60,44 +60,57 @@ HBITMAP captureScreen(){
     BitBlt(hMemoryDC, 0, 0, width, height, hScreenDC, 0, 0, SRCCOPY);
     //test to flip  the image later
 
-    //save(compBitmap, hMemoryDC); //for screenshot
-   
-
-    // Cleanup
-    //SelectObject(hMemoryDC, NULL); //needed?
-   // DeleteObject(compBitmap);
-    DeleteDC(hMemoryDC); //try without when adding video. what happens?
-    ReleaseDC(NULL, hScreenDC);
-
     return compBitmap;
 
+     DeleteDC(hMemoryDC);
 }
-//not needed atm
-void saveScreenShot(HBITMAP compBitmap, HDC hDC){ 
+char* createBuffer(HBITMAP compBitmap){
 
-    // Retrieve the bitmap data
+    HDC hScreenDC = GetDC(NULL);
+     // Retrieve the bitmap data
     BITMAP bmp;
     GetObject(compBitmap, sizeof(BITMAP), &bmp);
     int width = bmp.bmWidth;
     int height = bmp.bmHeight;
 
-   
-
     int imageSize = ((width * 24 + 31) / 32) * 4 * height;
      // Allocate memory for the bitmap data
     char* bmpData = new char[imageSize]; 
-     
+  //  saveScreenShot(compBitmap, hMemoryDC); //for screenshot
+   
     BITMAPINFOHEADER biHeader=createBitmapHeader(width, height);
     BITMAPFILEHEADER fileHeader=createBitmapFileHeader(width, height, imageSize);
     BITMAPINFO bmpInfo = {0};
     bmpInfo.bmiHeader = biHeader;
 
     // Puts the bitmap data to a buffer (bmpData) which is suitable for saving into a file
-   if (!GetDIBits(hDC, compBitmap, 0, height, bmpData, &bmpInfo, DIB_RGB_COLORS)) {
+   if (!GetDIBits(hScreenDC, compBitmap, 0, height, bmpData, &bmpInfo, DIB_RGB_COLORS)) {
         std::cerr << "Failed to get bitmap data from device context." << std::endl;
         delete[] bmpData;
-        return;
+        
     }
+
+    // Cleanup
+    //SelectObject(hMemoryDC, NULL); //needed?
+   // DeleteObject(compBitmap);
+   // DeleteDC(hMemoryDC); //try without when adding video. what happens?
+    ReleaseDC(NULL, hScreenDC);
+
+    return bmpData;
+
+}
+//not needed atm
+/*
+void saveScreenShot(HBITMAP compBitmap, HDC hDC){ 
+
+    // Retrieve the bitmap data
+   
+    BITMAP bmp;
+    GetObject(compBitmap, sizeof(BITMAP), &bmp);
+    int width = bmp.bmWidth;
+    int height = bmp.bmHeight;
+    
+
 
      // Debugging output to check the current working directory
     char cwd[1024];
@@ -125,84 +138,86 @@ void saveScreenShot(HBITMAP compBitmap, HDC hDC){
     std::cout << "Screenshot saved as spic.bmp" << std::endl;
 
 }
-void appendNewFrame(PAVIFILE aviFile, HBITMAP compBitmap, LONG& frameNum){
+*/
+void appendNewFrame(PAVISTREAM aviStream, HBITMAP compBitmap, LONG& frameNum){
 
      // Retrieve the bitmap data
     BITMAP bmp;
     GetObject(compBitmap, sizeof(BITMAP), &bmp);
     int width = bmp.bmWidth;
     int height = bmp.bmHeight;
-    //getting avistream
-    PAVISTREAM aviStream;
-    if (AVIFileGetStream(aviFile, &aviStream, streamtypeVIDEO, 0) != AVIERR_OK) {
-        std::cerr << "Failed to get AVI stream." << std::endl;
-        return;
-    }
-      int frameSize = ((width * 24 + 31) / 32) * 4 * height;
-    std::cerr << "avi stream gottem" << std::endl;
 
-    BITMAPINFOHEADER biHeader=createBitmapHeader(width, height);
-    BITMAPFILEHEADER fileHeader=createBitmapFileHeader(width, height, frameSize);
-    BITMAPINFO bmpInfo = {0};
-    bmpInfo.bmiHeader = biHeader;
-  
-    std::cerr << "bitmap headers readu for avistreamsetformat" << std::endl;
-    if (AVIStreamSetFormat(aviStream, 0, &bmpInfo.bmiHeader, sizeof(BITMAPINFOHEADER)) != AVIERR_OK) {
-        std::cerr << "Failed to set AVI stream format." << std::endl;
-        AVIStreamRelease(aviStream);
-        return;
-    }
-    std::cerr << "avistream format made" << std::endl;
-    HRESULT hr = AVIStreamWrite(aviStream, frameNum, 1, compBitmap, sizeof(BITMAP), AVIIF_KEYFRAME, NULL, NULL);
+    int frameSize = ((width * 24 + 31) / 32) * 4 * height;
+
+    char* bmBuffer=createBuffer(compBitmap);
+
+  // Write the frame to the AVI stream
+     // Write the frame to the AVI stream
+    HRESULT hr = AVIStreamWrite(aviStream, frameNum, 1, bmBuffer, frameSize, AVIIF_KEYFRAME, NULL, NULL);
     if (hr != 0) {
         std::cerr << "Failed to write to AVI stream. Error: " << hr << std::endl;
     } else {
-        std::cerr << "bitmap copied to avi" << std::endl;
+        std::cerr << "Frame " << frameNum << " written to AVI." << std::endl;
     }
-    
-    AVIStreamRelease(aviStream);
+
+    //delete[] bmpData;
+   
+   // AVIStreamRelease(aviStream);
 
 }
 
-PAVIFILE createAviFile(){
+PAVIFILE createAviFile(PAVISTREAM& aviStream, int width, int height){
     AVIFileInit();
     PAVIFILE aviFile;
-    //wide-character string??
+    
     if (AVIFileOpen(&aviFile, TEXT("svid.avi"), OF_WRITE | OF_CREATE, NULL) != AVIERR_OK) {
         std::cerr << "Failed to open AVI file." << std::endl;
         return nullptr;
     }
-    //avi stream
-    PAVISTREAM aviStream;
-    AVISTREAMINFO streamInfo={0};
-    ZeroMemory(&streamInfo, sizeof(streamInfo));
-
+    //avi stream info
+    AVISTREAMINFO streamInfo = { 0 };
     streamInfo.fccType = streamtypeVIDEO;
-    streamInfo.fccHandler = 0;
     streamInfo.dwScale = 1;
     streamInfo.dwRate = 25; // 25 frames per second
-    streamInfo.dwSuggestedBufferSize = 0;
+    streamInfo.dwSuggestedBufferSize = width * height * 3;
+    SetRect(&streamInfo.rcFrame, 0, 0, width, height);
    
     if (AVIFileCreateStream(aviFile, &aviStream, &streamInfo) != AVIERR_OK) {
         std::cerr << "Failed to create AVI stream." << std::endl;
         AVIFileRelease(aviFile);
         return nullptr;
     }
-    
+     BITMAPINFOHEADER biHeader = createBitmapHeader(width, height);
+    if (AVIStreamSetFormat(aviStream, 0, &biHeader, sizeof(BITMAPINFOHEADER)) != AVIERR_OK) {
+        std::cerr << "Failed to set AVI stream format." << std::endl;
+        AVIStreamRelease(aviStream);
+        AVIFileRelease(aviFile);
+        return nullptr;
+    }
   //  AVIStreamRelease(aviStream); // Release stream if it's not needed immediately
-    std::cerr << "wavi file and stream created" << std::endl;
+    //std::cerr << "wavi file and stream created" << std::endl;
     return aviFile;
     
 }
 
 int main() {
-    PAVIFILE aviFile= createAviFile();
-    long i=0;
+    HDC hScreenDC= GetDC(NULL);
+    // Capture one frame to get dimensions
+    int width = GetDeviceCaps(hScreenDC, HORZRES);
+    int height = GetDeviceCaps(hScreenDC, VERTRES); 
+
+    PAVISTREAM aviStream;
+    PAVIFILE aviFile = createAviFile(aviStream, width, height);
+    
+    long i=1;
     while(i<40){
         HBITMAP compBitmap= captureScreen();
-        appendNewFrame(aviFile, compBitmap, i );
+        appendNewFrame(aviStream, compBitmap, i );
+        DeleteObject(compBitmap);
         i++;
     }
+
+ AVIStreamRelease(aviStream);
 AVIFileRelease(aviFile); // Release AVI file handle
 AVIFileExit(); // Cleanup AVI file subsystem
 std::cout << "Screenvideo saved as svid.avi" << std::endl;
